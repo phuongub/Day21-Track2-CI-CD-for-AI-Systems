@@ -44,25 +44,13 @@ jobs:
       - name: Configure AWS credentials
         run: |
           echo "${{ secrets.CLOUD_CREDENTIALS }}" > /tmp/aws-credentials.json
-          python3 -c "
-          import json, os
-          d = json.load(open('/tmp/aws-credentials.json'))
-          ak = d['aws_access_key_id']
-          sk = d['aws_secret_access_key']
-          # export to GITHUB_ENV for subsequent steps
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f'AWS_ACCESS_KEY_ID={ak}\n')
-              f.write(f'AWS_SECRET_ACCESS_KEY={sk}\n')
-          # also write ~/.aws/credentials as fallback
-          os.makedirs(os.path.expanduser('~/.aws'), exist_ok=True)
-          with open(os.path.expanduser('~/.aws/credentials'), 'w') as f:
-              f.write('[default]\n')
-              f.write(f'aws_access_key_id = {ak}\n')
-              f.write(f'aws_secret_access_key = {sk}\n')
-          print('AWS credentials configured')
-          "
-        env:
-          AWS_DEFAULT_REGION: us-east-1
+          AK=$(jq -r '.aws_access_key_id' /tmp/aws-credentials.json)
+          SK=$(jq -r '.aws_secret_access_key' /tmp/aws-credentials.json)
+          echo "AWS_ACCESS_KEY_ID=$AK" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=$SK" >> $GITHUB_ENV
+          echo "AWS_DEFAULT_REGION=us-east-1" >> $GITHUB_ENV
+          mkdir -p ~/.aws
+          printf "[default]\naws_access_key_id = %s\naws_secret_access_key = %s\n" "$AK" "$SK" > ~/.aws/credentials
 
       - name: Pull data with DVC
         run: dvc pull data/train_phase1.csv data/eval.csv
