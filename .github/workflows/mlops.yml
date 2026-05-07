@@ -44,31 +44,54 @@ jobs:
       - name: Configure AWS credentials
         id: aws_creds
         run: |
-          python3 -c "
+          cat <<'PYEOF' > /tmp/setup_aws.py
           import json, os, sys
-          raw = os.environ['CLOUD_CREDS_JSON']
+          raw = os.environ.get('CLOUD_CREDS_JSON', '')
+          if not raw:
+              print("ERROR: CLOUD_CREDS_JSON is empty", file=sys.stderr)
+              sys.exit(1)
           try:
               d = json.loads(raw)
-              ak = d['aws_access_key_id']
-              sk = d['aws_secret_access_key']
           except Exception as e:
-              print('ERROR parsing JSON:', e, file=sys.stderr)
+              print(f"ERROR: Invalid JSON: {e}", file=sys.stderr)
               sys.exit(1)
-          # Write to GITHUB_ENV so subsequent steps pick them up
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write(f'AWS_ACCESS_KEY_ID={ak}\n')
-              f.write(f'AWS_SECRET_ACCESS_KEY={sk}\n')
-          # Also write ~/.aws/credentials for DVC/boto3 fallback
-          os.makedirs(os.path.expanduser('~/.aws'), exist_ok=True)
-          with open(os.path.expanduser('~/.aws/credentials'), 'w') as f:
+          ak = d.get('aws_access_key_id', '')
+          sk = d.get('aws_secret_access_key', '')
+          if not ak or not sk:
+              print("ERROR: Missing keys in JSON", file=sys.stderr)
+              sys.exit(1)
+          # Write to GITHUB_ENV
+          env_file = os.environ.get('GITHUB_ENV', '')
+          if env_file:
+              with open(env_file, 'a') as f:
+                  f.write(f'AWS_ACCESS_KEY_ID={ak}\n')
+                  f.write(f'AWS_SECRET_ACCESS_KEY={sk}\n')
+                  f.write('AWS_DEFAULT_REGION=us-east-1\n')
+              print(f"Wrote to GITHUB_ENV: {env_file}")
+          else:
+              print("WARNING: GITHUB_ENV not set", file=sys.stderr)
+          # Write ~/.aws/credentials
+          aws_dir = os.path.expanduser('~/.aws')
+          os.makedirs(aws_dir, exist_ok=True)
+          creds_path = os.path.join(aws_dir, 'credentials')
+          with open(creds_path, 'w') as f:
               f.write('[default]\n')
               f.write(f'aws_access_key_id = {ak}\n')
               f.write(f'aws_secret_access_key = {sk}\n')
-          print(f'Key extracted, length={len(ak)} chars')
-          print('AWS credentials configured successfully')
-          "
+          print(f"Wrote to {creds_path}")
+          print(f"Key lengths: AK={len(ak)} SK={len(sk)}")
+          PYEOF
+          python3 /tmp/setup_aws.py
         env:
           CLOUD_CREDS_JSON: ${{ secrets.CLOUD_CREDENTIALS }}
+
+      - name: Verify AWS credentials
+        run: |
+          echo "AK length: ${#AWS_ACCESS_KEY_ID}"
+          echo "SK length: ${#AWS_SECRET_ACCESS_KEY}"
+          echo "Region: $AWS_DEFAULT_REGION"
+          ls -la ~/.aws/credentials || true
+          cat ~/.aws/credentials | head -1 || true
 
       - name: Pull data with DVC
         run: dvc pull data/train_phase1.csv data/eval.csv
