@@ -30,6 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       accuracy: ${{ steps.read_metrics.outputs.accuracy }}
+    env:
+      AWS_DEFAULT_REGION: us-east-1
 
     steps:
       - uses: actions/checkout@v4
@@ -42,9 +44,17 @@ jobs:
       - name: Configure AWS credentials
         run: |
           echo "${{ secrets.CLOUD_CREDENTIALS }}" > /tmp/aws-credentials.json
-          echo "AWS_ACCESS_KEY_ID=$(python3 -c "import json,sys; d=json.load(open('/tmp/aws-credentials.json')); print(d['aws_access_key_id'])")" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=$(python3 -c "import json,sys; d=json.load(open('/tmp/aws-credentials.json')); print(d['aws_secret_access_key'])")" >> $GITHUB_ENV
-          echo "AWS_DEFAULT_REGION=us-east-1" >> $GITHUB_ENV
+          mkdir -p ~/.aws
+          python3 -c "
+          import json, os
+          d = json.load(open('/tmp/aws-credentials.json'))
+          creds_path = os.path.expanduser('~/.aws/credentials')
+          with open(creds_path, 'w') as f:
+              f.write('[default]\n')
+              f.write(f\"aws_access_key_id = {d['aws_access_key_id']}\n\")
+              f.write(f\"aws_secret_access_key = {d['aws_secret_access_key']}\n\")
+          print('Credentials written to', creds_path)
+          "
 
       - name: Pull data with DVC
         run: dvc pull data/train_phase1.csv data/eval.csv
