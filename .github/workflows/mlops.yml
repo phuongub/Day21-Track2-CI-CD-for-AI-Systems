@@ -42,15 +42,33 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Configure AWS credentials
+        id: aws_creds
         run: |
-          echo "${{ secrets.CLOUD_CREDENTIALS }}" > /tmp/aws-credentials.json
-          AK=$(jq -r '.aws_access_key_id' /tmp/aws-credentials.json)
-          SK=$(jq -r '.aws_secret_access_key' /tmp/aws-credentials.json)
-          echo "AWS_ACCESS_KEY_ID=$AK" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=$SK" >> $GITHUB_ENV
-          echo "AWS_DEFAULT_REGION=us-east-1" >> $GITHUB_ENV
-          mkdir -p ~/.aws
-          printf "[default]\naws_access_key_id = %s\naws_secret_access_key = %s\n" "$AK" "$SK" > ~/.aws/credentials
+          python3 -c "
+          import json, os, sys
+          raw = os.environ['CLOUD_CREDS_JSON']
+          try:
+              d = json.loads(raw)
+              ak = d['aws_access_key_id']
+              sk = d['aws_secret_access_key']
+          except Exception as e:
+              print('ERROR parsing JSON:', e, file=sys.stderr)
+              sys.exit(1)
+          # Write to GITHUB_ENV so subsequent steps pick them up
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f'AWS_ACCESS_KEY_ID={ak}\n')
+              f.write(f'AWS_SECRET_ACCESS_KEY={sk}\n')
+          # Also write ~/.aws/credentials for DVC/boto3 fallback
+          os.makedirs(os.path.expanduser('~/.aws'), exist_ok=True)
+          with open(os.path.expanduser('~/.aws/credentials'), 'w') as f:
+              f.write('[default]\n')
+              f.write(f'aws_access_key_id = {ak}\n')
+              f.write(f'aws_secret_access_key = {sk}\n')
+          print(f'Key extracted, length={len(ak)} chars')
+          print('AWS credentials configured successfully')
+          "
+        env:
+          CLOUD_CREDS_JSON: ${{ secrets.CLOUD_CREDENTIALS }}
 
       - name: Pull data with DVC
         run: dvc pull data/train_phase1.csv data/eval.csv
